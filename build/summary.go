@@ -38,7 +38,7 @@ func vcsInfoFrom(settings []debug.BuildSetting) (string, time.Time, error) {
 		switch setting.Key {
 		case "vcs.revision":
 			sha = setting.Value
-		case "vcs.modified":
+		case "vcs.time":
 			var err error
 			t, err = time.Parse(time.RFC3339, setting.Value)
 			if err != nil {
