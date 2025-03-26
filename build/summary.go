@@ -18,6 +18,10 @@ type Summary struct {
 }
 
 func ReadSummary() (*Summary, error) {
+	if vcsInfo == "" {
+		return &Summary{}, nil
+	}
+
 	rev, ts, ok := strings.Cut(vcsInfo, ",")
 	if !ok {
 		return nil, errors.New("invalid build info")
@@ -33,6 +37,10 @@ func ReadSummary() (*Summary, error) {
 		CommitTime: time.Unix(t, 0),
 		Name:       buildname.FromVersion(rev),
 	}, nil
+}
+
+func SetVCSInfo(info string) {
+	vcsInfo = info
 }
 
 func VCSInfo() string {
