@@ -1,7 +1,11 @@
 package build
 
 import (
+	"context"
 	"errors"
+	"io"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -45,4 +49,29 @@ func SetVCSInfo(info string) {
 
 func VCSInfo() string {
 	return vcsInfo
+}
+
+func VCSInfoFromGit(ctx context.Context) (string, error) {
+	c := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=format:%H,%ct")
+	c.Stderr = os.Stderr
+	r, err := c.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+
+	if err := c.Start(); err != nil {
+		return "", err
+	}
+
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+
+	if err := c.Wait(); err != nil {
+		return "", err
+	}
+
+	return string(b), nil
 }
