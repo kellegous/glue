@@ -9,12 +9,30 @@ import (
 	"fmt"
 	"log"
 	"text/template"
+	"time"
 
 	"github.com/kellegous/glue/build"
 )
 
 func applyFormat(s *build.Summary, format string) ([]byte, error) {
-	tpl, err := template.New("format").Parse(format)
+	tpl := template.New("format")
+
+	tpl = tpl.Funcs(template.FuncMap{
+		"timestamp": func(t time.Time) int64 {
+			return t.Unix()
+		},
+		"rfc3339": func(t time.Time) string {
+			return t.Format(time.RFC3339)
+		},
+		"utc": func(t time.Time) time.Time {
+			return t.UTC()
+		},
+		"local": func(t time.Time) time.Time {
+			return t.Local()
+		},
+	})
+
+	tpl, err := tpl.Parse(format)
 	if err != nil {
 		return nil, err
 	}
