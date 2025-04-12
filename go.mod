@@ -1,9 +1,9 @@
 module github.com/kellegous/glue
 
-go 1.24.1
+go 1.24.2
 
 require (
-	github.com/kellegous/buildname v0.0.0-20200713164929-6b7d76d908db
+	github.com/kellegous/buildname v0.2.0
 	go.uber.org/zap v1.27.0
 )
 
