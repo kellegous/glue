@@ -31,10 +31,11 @@ func AssetsFromVite(
 		return nil, err
 	}
 
-	p := httputil.NewSingleHostReverseProxy(flag.viteURL())
-	p.Rewrite = func(r *httputil.ProxyRequest) {
-		r.SetURL(flag.viteURL())
-		r.Out.Host = flag.viteURL().Host
+	p := &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(flag.viteURL())
+			r.Out.Host = flag.viteURL().Host
+		},
 	}
 
 	return p, nil
