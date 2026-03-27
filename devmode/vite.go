@@ -7,16 +7,47 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	"time"
+
+	"github.com/kellegous/glue/build"
 )
+
+type ViteOption func(*ViteOptions)
+
+type ViteOptions struct {
+	env []string
+}
+
+func WithEnv(key string, val string) ViteOption {
+	return func(o *ViteOptions) {
+		o.env = append(o.env, fmt.Sprintf("%s=%s", key, val))
+	}
+}
+
+func WithBuildInfo(info *build.Summary) ViteOption {
+	return func(o *ViteOptions) {
+		o.env = append(o.env,
+			fmt.Sprintf("SHA=%s", info.SHA),
+			fmt.Sprintf("BUILD_NAME=%s", info.Name),
+			fmt.Sprintf("COMMIT_TIME=%s", info.CommitTime.Format(time.RFC3339)),
+		)
+	}
+}
 
 // AssetsFromVite starts a vite server and returns a handler that proxies
 // requests to the vite server.
 func AssetsFromVite(
 	ctx context.Context,
 	flag *Flag,
+	opts ...ViteOption,
 ) (http.Handler, error) {
 	if !flag.IsEnabled() {
 		return nil, fmt.Errorf("devmode flag is not set")
+	}
+
+	var options ViteOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
 
 	c := exec.CommandContext(
@@ -27,6 +58,9 @@ func AssetsFromVite(
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	c.Dir = flag.Root
+	env := os.Environ()
+	env = append(env, options.env...)
+	c.Env = env
 	if err := c.Start(); err != nil {
 		return nil, err
 	}
