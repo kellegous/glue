@@ -1,13 +1,16 @@
 package devmode
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -65,6 +68,44 @@ func (f *Flag) PrintBanner(w io.Writer, appAddr string) error {
 	}
 
 	return nil
+}
+
+func isAlive(ctx context.Context, url string) (bool, error) {
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodHead,
+		url,
+		nil,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, nil
+	}
+	defer res.Body.Close()
+
+	return res.StatusCode == http.StatusOK, nil
+}
+
+// WaitForReady waits for the vite server to be ready.
+func (f *Flag) WaitForReady(ctx context.Context) error {
+	url := f.viteURL().String()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		if alive, err := isAlive(ctx, url); err != nil {
+			return err
+		} else if alive {
+			return nil
+		}
+	}
 }
 
 // IsEnabled returns true if the flag is enabled.

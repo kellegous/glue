@@ -18,17 +18,14 @@ type ViteOptions struct {
 	env []string
 }
 
+// WithEnv adds an environment variable to the Vite server.
 func WithEnv(key string, val string) ViteOption {
 	return func(o *ViteOptions) {
 		o.env = append(o.env, fmt.Sprintf("%s=%s", key, val))
 	}
 }
 
-// Deprecated: Use WithBuildSummary instead.
-func WithBuildInfo(info *build.Summary) ViteOption {
-	return WithBuildSummary(info)
-}
-
+// WithBuildSummary adds the build summary to the environment variables.
 func WithBuildSummary(summary *build.Summary) ViteOption {
 	return func(o *ViteOptions) {
 		o.env = append(o.env,
