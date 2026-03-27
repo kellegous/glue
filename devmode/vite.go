@@ -24,12 +24,17 @@ func WithEnv(key string, val string) ViteOption {
 	}
 }
 
+// Deprecated: Use WithBuildSummary instead.
 func WithBuildInfo(info *build.Summary) ViteOption {
+	return WithBuildSummary(info)
+}
+
+func WithBuildSummary(summary *build.Summary) ViteOption {
 	return func(o *ViteOptions) {
 		o.env = append(o.env,
-			fmt.Sprintf("SHA=%s", info.SHA),
-			fmt.Sprintf("BUILD_NAME=%s", info.Name),
-			fmt.Sprintf("COMMIT_TIME=%s", info.CommitTime.Format(time.RFC3339)),
+			fmt.Sprintf("SHA=%s", summary.SHA),
+			fmt.Sprintf("BUILD_NAME=%s", summary.Name),
+			fmt.Sprintf("COMMIT_TIME=%s", summary.CommitTime.Format(time.RFC3339)),
 		)
 	}
 }
