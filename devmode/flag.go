@@ -108,6 +108,24 @@ func (f *Flag) WaitForReady(ctx context.Context) error {
 	}
 }
 
+// ShowBannerWhenReady waits for the vite server to be ready and then prints the banner.
+// If devmode is not enabled, this is a no-op.
+func (f *Flag) ShowBannerWhenReady(
+	ctx context.Context,
+	w io.Writer,
+	appAddr string,
+) error {
+	if !f.IsEnabled() {
+		return nil
+	}
+
+	if err := f.WaitForReady(ctx); err != nil {
+		return err
+	}
+
+	return f.PrintBanner(w, appAddr)
+}
+
 // IsEnabled returns true if the flag is enabled.
 func (f *Flag) IsEnabled() bool {
 	return f.Port > 0 && f.Root != ""
