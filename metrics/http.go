@@ -12,12 +12,12 @@ var (
 	httpRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "http_requests_total",
 		Help: "Total number of HTTP requests.",
-	}, []string{"method", "code"})
+	}, []string{"code", "method"})
 
 	httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "http_request_duration_seconds",
 		Help: "Duration of HTTP requests.",
-	}, []string{"path", "method"})
+	}, []string{"code", "method"})
 )
 
 func ForHTTP(mux *http.ServeMux) http.Handler {
