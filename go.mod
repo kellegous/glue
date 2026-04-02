@@ -3,6 +3,7 @@ module github.com/kellegous/glue
 go 1.24.2
 
 require (
+	connectrpc.com/connect v1.19.1
 	github.com/fatih/color v1.18.0
 	github.com/kellegous/buildname v0.2.0
 	github.com/prometheus/client_golang v1.23.2
@@ -21,5 +22,5 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.35.0 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	google.golang.org/protobuf v1.36.9 // indirect
 )
