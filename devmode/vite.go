@@ -15,13 +15,50 @@ import (
 type ViteOption func(*ViteOptions)
 
 type ViteOptions struct {
-	env []string
+	env    []string
+	useBun bool
+}
+
+func (o *ViteOptions) viteCommand(
+	ctx context.Context,
+	flag *Flag,
+) *exec.Cmd {
+	var cmd *exec.Cmd
+	if o.useBun {
+		cmd = exec.CommandContext(
+			ctx,
+			"bun",
+			"run",
+			"node_modules/.bin/vite",
+			"--clearScreen=false",
+			fmt.Sprintf("--port=%d", flag.Port))
+	} else {
+		cmd = exec.CommandContext(
+			ctx,
+			"node_modules/.bin/vite",
+			"--clearScreen=false",
+			fmt.Sprintf("--port=%d", flag.Port))
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = flag.Root
+	env := os.Environ()
+	env = append(env, o.env...)
+	cmd.Env = env
+	return cmd
 }
 
 // WithEnv adds an environment variable to the Vite server.
 func WithEnv(key string, val string) ViteOption {
 	return func(o *ViteOptions) {
 		o.env = append(o.env, fmt.Sprintf("%s=%s", key, val))
+	}
+}
+
+func UseBun() ViteOption {
+	return func(o *ViteOptions) {
+		o.useBun = true
 	}
 }
 
@@ -52,17 +89,7 @@ func AssetsFromVite(
 		opt(&options)
 	}
 
-	c := exec.CommandContext(
-		ctx,
-		"node_modules/.bin/vite",
-		"--clearScreen=false",
-		fmt.Sprintf("--port=%d", flag.Port))
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	c.Dir = flag.Root
-	env := os.Environ()
-	env = append(env, options.env...)
-	c.Env = env
+	c := options.viteCommand(ctx, flag)
 	if err := c.Start(); err != nil {
 		return nil, err
 	}
