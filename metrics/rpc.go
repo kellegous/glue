@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"time"
 
 	"connectrpc.com/connect"
@@ -16,6 +17,8 @@ const (
 )
 
 var (
+	rpcSourcePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 	rpcCounts = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "rpc_requests_total",
@@ -86,7 +89,8 @@ func statusFromError(err error) string {
 }
 
 func sourceFrom(header http.Header) string {
-	if src := header.Get(rpcSourceHeader); src != "" {
+	src := header.Get(rpcSourceHeader)
+	if rpcSourcePattern.MatchString(src) {
 		return src
 	}
 	return rpcSourceUnknown
