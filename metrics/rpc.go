@@ -2,11 +2,17 @@ package metrics
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+const (
+	rpcSourceHeader  = "X-Rpc-Source"
+	rpcSourceUnknown = "unknown"
 )
 
 var (
@@ -15,7 +21,7 @@ var (
 			Name: "rpc_requests_total",
 			Help: "Total number of RPC requests",
 		},
-		[]string{"method", "code"},
+		[]string{"method", "code", "source"},
 	)
 
 	rpcDurations = promauto.NewHistogramVec(
@@ -24,7 +30,7 @@ var (
 			Help:    "RPC request duration in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"method"},
+		[]string{"method", "source"},
 	)
 )
 
@@ -42,9 +48,10 @@ func (rpcMetricsInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc
 
 		method := req.Spec().Procedure
 		code := statusFromError(err)
+		source := sourceFrom(req.Header())
 
-		rpcCounts.WithLabelValues(method, code).Inc()
-		rpcDurations.WithLabelValues(method).Observe(took.Seconds())
+		rpcCounts.WithLabelValues(method, code, source).Inc()
+		rpcDurations.WithLabelValues(method, source).Observe(took.Seconds())
 
 		return res, err
 	}
@@ -58,9 +65,10 @@ func (rpcMetricsInterceptor) WrapStreamingHandler(next connect.StreamingHandlerF
 
 		method := conn.Spec().Procedure
 		code := statusFromError(err)
+		source := sourceFrom(conn.RequestHeader())
 
-		rpcCounts.WithLabelValues(method, code).Inc()
-		rpcDurations.WithLabelValues(method).Observe(took.Seconds())
+		rpcCounts.WithLabelValues(method, code, source).Inc()
+		rpcDurations.WithLabelValues(method, source).Observe(took.Seconds())
 
 		return err
 	}
@@ -75,4 +83,45 @@ func statusFromError(err error) string {
 		return "ok"
 	}
 	return connect.CodeOf(err).String()
+}
+
+func sourceFrom(header http.Header) string {
+	if src := header.Get(rpcSourceHeader); src != "" {
+		return src
+	}
+	return rpcSourceUnknown
+}
+
+func addSource(src string, header http.Header) {
+	header.Set(rpcSourceHeader, src)
+}
+
+type rpcSourceInterceptor struct {
+	source string
+}
+
+// WithSource returns a client interceptor that sets X-Rpc-Source on every RPC.
+func WithSource(source string) connect.Interceptor {
+	return &rpcSourceInterceptor{source: source}
+}
+
+var _ connect.Interceptor = (*rpcSourceInterceptor)(nil)
+
+func (i *rpcSourceInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		addSource(i.source, req.Header())
+		return next(ctx, req)
+	}
+}
+
+func (i *rpcSourceInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
+		conn := next(ctx, spec)
+		addSource(i.source, conn.RequestHeader())
+		return conn
+	}
+}
+
+func (i *rpcSourceInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return next
 }
