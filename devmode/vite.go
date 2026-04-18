@@ -27,15 +27,15 @@ func (o *ViteOptions) viteCommand(
 	if o.useBun {
 		cmd = exec.CommandContext(
 			ctx,
-			"bun",
-			"run",
-			"node_modules/.bin/vite",
+			"bunx",
+			"vite",
 			"--clearScreen=false",
 			fmt.Sprintf("--port=%d", flag.Port))
 	} else {
 		cmd = exec.CommandContext(
 			ctx,
-			"node_modules/.bin/vite",
+			"npx",
+			"vite",
 			"--clearScreen=false",
 			fmt.Sprintf("--port=%d", flag.Port))
 	}
