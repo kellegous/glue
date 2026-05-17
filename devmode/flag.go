@@ -2,7 +2,6 @@ package devmode
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"io"
 	"net"
@@ -14,9 +13,6 @@ import (
 
 	"github.com/fatih/color"
 )
-
-//go:embed banner.ans
-var devmodeBanner []byte
 
 // Flag provides a flag to configure the devmode where the application
 // assets are proxied to a vite server.
@@ -47,7 +43,16 @@ func toAppURL(addr string) (string, error) {
 }
 
 // PrintBanner prints the devmode banner to the writer.
-func (f *Flag) PrintBanner(w io.Writer, appAddr string) error {
+func (f *Flag) PrintBanner(
+	w io.Writer,
+	appAddr string,
+	opts ...BannerOption,
+) error {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	cyan := color.New(color.FgCyan).SprintFunc()
 
 	appURL, err := toAppURL(appAddr)
@@ -55,7 +60,12 @@ func (f *Flag) PrintBanner(w io.Writer, appAddr string) error {
 		return err
 	}
 
-	if _, err := fmt.Fprintf(w, "\n%s\n", devmodeBanner); err != nil {
+	fonts, err := BannerFonts()
+	if err != nil {
+		return err
+	}
+
+	if err := renderBanner(w, options.chooser(fonts), "devmode"); err != nil {
 		return err
 	}
 
@@ -114,6 +124,7 @@ func (f *Flag) ShowBannerWhenReady(
 	ctx context.Context,
 	w io.Writer,
 	appAddr string,
+	opts ...BannerOption,
 ) error {
 	if !f.IsEnabled() {
 		return nil
@@ -123,7 +134,7 @@ func (f *Flag) ShowBannerWhenReady(
 		return err
 	}
 
-	return f.PrintBanner(w, appAddr)
+	return f.PrintBanner(w, appAddr, opts...)
 }
 
 // IsEnabled returns true if the flag is enabled.
