@@ -9,6 +9,7 @@ require (
 	github.com/kellegous/tdfiglet v0.2.0
 	github.com/prometheus/client_golang v1.23.2
 	go.uber.org/zap v1.27.0
+	google.golang.org/protobuf v1.36.9
 )
 
 require (
@@ -25,5 +26,4 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
 )
