@@ -90,7 +90,7 @@ func deliver(ctx context.Context, client yarder_connect.YarderClient, req *yarde
 			return poop.Chain(err)
 		},
 		retry.Context(ctx),
-		retry.Attempts(0),
+		retry.Attempts(0), // Retry indefinitely.
 		retry.Delay(initialRetryDelay),
 		retry.MaxDelay(maxRetryDelay),
 		retry.DelayType(retry.BackOffDelay),
