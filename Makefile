@@ -12,6 +12,8 @@ GENERATED := \
 
 .PHONY: generated test lint fmt clean validate
 
+default: validate
+
 generated: $(GENERATED)
 
 clean:
