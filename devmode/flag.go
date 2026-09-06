@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+
+	"github.com/kellegous/glue/fn"
 )
 
 // Flag provides a flag to configure the devmode where the application
@@ -80,7 +82,7 @@ func (f *Flag) PrintBanner(
 	return nil
 }
 
-func isAlive(ctx context.Context, url string) (bool, error) {
+func isAlive(ctx context.Context, url string) (_ bool, err error) {
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodHead,
@@ -95,7 +97,7 @@ func isAlive(ctx context.Context, url string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	defer res.Body.Close()
+	defer fn.WithCare(res.Body.Close, &err)
 
 	return res.StatusCode == http.StatusOK, nil
 }

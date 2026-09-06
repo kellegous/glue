@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/kellegous/buildname"
+
+	"github.com/kellegous/glue/fn"
 )
 
 var vcsInfo string
@@ -91,7 +93,7 @@ func fromBuildInfo() (*Summary, error) {
 	}, nil
 }
 
-func ReadSummaryFromGit(ctx context.Context) (*Summary, error) {
+func ReadSummaryFromGit(ctx context.Context) (_ *Summary, err error) {
 	c := exec.CommandContext(
 		ctx,
 		"git",
@@ -105,7 +107,7 @@ func ReadSummaryFromGit(ctx context.Context) (*Summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer fn.WithCare(r.Close, &err)
 
 	if err := c.Start(); err != nil {
 		return nil, err

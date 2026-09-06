@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/kellegous/tdfiglet"
+
+	"github.com/kellegous/glue/fn"
 )
 
 //go:embed fonts
@@ -53,7 +55,7 @@ func BannerFonts() ([]string, error) {
 	return names, nil
 }
 
-func renderBanner(w io.Writer, fontName string, text string) error {
+func renderBanner(w io.Writer, fontName string, text string) (err error) {
 	sub, err := fs.Sub(fonts, "fonts")
 	if err != nil {
 		return err
@@ -63,7 +65,7 @@ func renderBanner(w io.Writer, fontName string, text string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer fn.WithCare(r.Close, &err)
 
 	font, err := tdfiglet.LoadFont(r)
 	if err != nil {

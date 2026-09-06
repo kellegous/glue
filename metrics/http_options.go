@@ -2,7 +2,6 @@ package metrics
 
 type HTTPOptions struct {
 	authToken string
-	metrics   bool
 }
 
 type HTTPOption func(*HTTPOptions)

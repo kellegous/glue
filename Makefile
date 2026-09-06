@@ -2,7 +2,7 @@ PROTOC_GEN_GO_VERSION := v1.36.5
 PROTOC_GEN_CONNECT_GO_VERSION := v1.19.1
 PROTOC_VERSION := 34.1
 GOLANGCI_LINT_VERSION := v2.13.1
-GOPLS_VERSION := v0.49.0
+GOIMPORTS_VERSION := v0.49.0
 
 GO_MOD := $(shell go list -m)
 
@@ -23,8 +23,9 @@ test:
 lint: bin/golangci-lint
 	bin/golangci-lint run
 
-fmt: bin/gopls
-	bin/gopls format -w .
+fmt: bin/goimports
+	find . -type f -name '*.go' $(foreach file,$(GENERATED),-not -path './$(file)') \
+		-exec bin/goimports -local $(GO_MOD) -w {} +
 
 validate: generated test lint fmt
 
@@ -55,5 +56,5 @@ bin/protoc-gen-connect-go:
 bin/golangci-lint: Makefile
 	GOBIN=$(abspath $(dir $@)) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-bin/gopls:
-	GOBIN="$(CURDIR)/bin" go install golang.org/x/tools/gopls@$(GOPLS_VERSION)
+bin/goimports:
+	GOBIN="$(CURDIR)/bin" go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
