@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package yarder;
+
+option go_package = "github.com/kellegous/glue/logging/yarder";
+
+import "google/protobuf/empty.proto";
+
+service Yarder { rpc Log(LogReq) returns (google.protobuf.Empty); }
+
+message LogReq {
+  string app = 1;
+  repeated bytes payload = 2;
+}

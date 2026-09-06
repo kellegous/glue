@@ -1,0 +1,83 @@
+#!/bin/bash
+
+get_system() {
+    local system=$(uname -s)
+    case "$system" in
+        Linux)
+            echo "linux"
+            ;;
+        Darwin)
+            echo "osx"
+            ;;
+        *)
+            echo "Unsupported system: $system" >&2
+            exit 1
+            ;;
+    esac
+}
+
+get_arch() {
+    local machine=$(uname -m)
+    case "$machine" in
+        x86_64)
+            echo "x86_64"
+            ;;
+        aarch64|arm64)
+            echo "aarch_64"
+            ;;
+        *)
+            echo "Unsupported architecture: $machine" >&2
+            exit 1
+            ;;
+    esac
+}
+
+usage() {
+    echo "Usage: $0 version [--base-url url] [--dest directory]"
+    exit 1
+}
+
+BASE_URL="https://github.com/protocolbuffers/protobuf/releases/download"
+DEST="bin"
+VERSION=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --base-url)
+            BASE_URL="$2"
+            shift 2
+            ;;
+        --dest)
+            DEST="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            if [[ -z "$VERSION" ]]; then
+                VERSION="$1"
+                shift
+            else
+                usage
+            fi
+            ;;
+    esac
+done
+
+if [[ -z "$VERSION" ]]; then
+    usage
+fi
+
+SYSTEM=$(get_system)
+ARCH=$(get_arch)
+DST="protoc-${VERSION}-${SYSTEM}-${ARCH}.zip"
+URL="${BASE_URL}/v${VERSION}/${DST}"
+
+mkdir -p "$DEST"
+curl -fsSL -o "${DEST}/${DST}" "$URL"
+unzip -qo "${DEST}/${DST}" -d "${DEST}/protoc-${VERSION}"
+if [ -L "${DEST}/protoc" ]; then
+    rm "${DEST}/protoc"
+fi
+ln -s "protoc-${VERSION}/bin/protoc" "${DEST}/protoc"
