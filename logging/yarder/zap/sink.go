@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	httpScheme   = "yarder+http"
-	httpsScheme  = "yarder+https"
-	defaultLimit = 100
+	httpScheme       = "yarder+http"
+	httpsScheme      = "yarder+https"
+	defaultQueueSize = 100
 
 	initialRetryDelay = 100 * time.Millisecond
 	maxRetryDelay     = time.Minute
@@ -52,7 +52,7 @@ func newSink(u *url.URL) (zap.Sink, error) {
 
 	q := u.Query()
 
-	limit, err := getLimit(q)
+	queueSize, err := getInt(q.Get("queue-size"), defaultQueueSize)
 	if err != nil {
 		return nil, poop.Chain(err)
 	}
@@ -62,7 +62,7 @@ func newSink(u *url.URL) (zap.Sink, error) {
 		return nil, poop.New("app is required")
 	}
 
-	buffer := newCircBuffer[[]byte](limit)
+	buffer := newCircBuffer[[]byte](queueSize)
 
 	client := yarder_connect.NewYarderClient(http.DefaultClient, rpcURL)
 
@@ -79,6 +79,28 @@ func newSink(u *url.URL) (zap.Sink, error) {
 
 	return &sink{buffer: buffer}, nil
 }
+
+func getInt(v string, def int) (int, error) {
+	if v == "" {
+		return def, nil
+	}
+	limit, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, poop.Chain(err)
+	}
+	return limit, nil
+}
+
+// func getDuration(v string, def time.Duration) (time.Duration, error) {
+// 	if v == "" {
+// 		return def, nil
+// 	}
+// 	duration, err := time.ParseDuration(v)
+// 	if err != nil {
+// 		return 0, poop.Chain(err)
+// 	}
+// 	return duration, nil
+// }
 
 func deliver(ctx context.Context, client yarder_connect.YarderClient, req *yarder.LogReq) error {
 	return retry.Do(
@@ -114,18 +136,6 @@ func getRpcURL(u *url.URL) (string, error) {
 	}
 
 	return ru.String(), nil
-}
-
-func getLimit(u url.Values) (int, error) {
-	if v := u.Get("limit"); v != "" {
-		limit, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, poop.Chain(err)
-		}
-		return limit, nil
-	}
-
-	return defaultLimit, nil
 }
 
 func Register() error {
