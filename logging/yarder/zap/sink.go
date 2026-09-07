@@ -3,6 +3,7 @@ package zap
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,18 +36,15 @@ type sink struct {
 	drainTimeout time.Duration
 	drained      chan struct{}
 	changed      chan struct{}
+	closed       bool
 }
 
 func (s *sink) Write(p []byte) (int, error) {
 	s.lck.Lock()
 	defer s.lck.Unlock()
 
-	// Sync is current implemented as drain and close, but that's not the
-	// correct behavior. Sync should wait for the internal buffer to reach
-	// zero length and then return. It would be feasible, for instance, to
-	// simply lock out writes during the drain and not return an error.
-	if s.drained != nil {
-		return 0, poop.New("sink is draining")
+	if s.closed {
+		return 0, io.ErrClosedPipe
 	}
 
 	s.buffer.Push(p)
@@ -55,19 +53,23 @@ func (s *sink) Write(p []byte) (int, error) {
 }
 
 func (s *sink) Close() error {
+	s.lck.Lock()
+	defer s.lck.Unlock()
+
+	s.closed = true
 	return nil
 }
 
 func (s *sink) Sync() error {
 	select {
-	case <-s.drain():
+	case <-s.subscribeForDrain():
 		return nil
 	case <-time.After(s.drainTimeout):
 		return poop.New("drain timeout")
 	}
 }
 
-func (s *sink) drain() <-chan struct{} {
+func (s *sink) subscribeForDrain() <-chan struct{} {
 	s.lck.Lock()
 	defer s.lck.Unlock()
 
@@ -77,6 +79,14 @@ func (s *sink) drain() <-chan struct{} {
 	}
 
 	return s.drained
+}
+
+func (s *sink) ackDrain() {
+	s.lck.Lock()
+	defer s.lck.Unlock()
+
+	close(s.drained)
+	s.drained = nil
 }
 
 func newSink(u *url.URL) (zap.Sink, error) {
@@ -144,35 +154,27 @@ func (s *sink) deliverPending(
 	app string,
 ) bool {
 	for {
-		data, hasData, isDrained := func() ([]byte, bool, bool) {
+		data, ok, draining, closed := func() ([]byte, bool, bool, bool) {
 			s.lck.Lock()
 			defer s.lck.Unlock()
-
 			data, ok := s.buffer.Pop()
-			// if we are draining and the buffer is empty,
-			// signal that draining is complete
-			if s.buffer.Len() == 0 && s.drained != nil {
-				return data, ok, true
-			}
-
-			return data, ok, false
+			return data, ok, s.drained != nil, s.closed
 		}()
 
 		// TODO(kellegous): What happens here if the context is cancelled? Does this keep retrying?
-		if hasData {
+		if ok {
 			if err := deliver(ctx, client, &yarder.LogReq{
 				App:  app,
 				Data: data,
 			}); err != nil {
 				continue
 			}
-		}
+		} else {
+			if draining {
+				s.ackDrain()
+			}
 
-		if isDrained {
-			close(s.drained)
-			return false
-		} else if !hasData {
-			return true
+			return !closed
 		}
 	}
 }
