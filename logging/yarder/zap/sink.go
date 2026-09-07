@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 	"github.com/kellegous/poop"
 	"go.uber.org/zap"
 
@@ -54,9 +54,9 @@ func (s *sink) Write(p []byte) (int, error) {
 
 func (s *sink) Close() error {
 	s.lck.Lock()
-	defer s.lck.Unlock()
-
 	s.closed = true
+	s.lck.Unlock()
+	s.wake()
 	return nil
 }
 

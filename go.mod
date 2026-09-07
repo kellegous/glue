@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	connectrpc.com/connect v1.19.1
-	github.com/avast/retry-go v3.0.0+incompatible
+	github.com/avast/retry-go/v4 v4.7.0
 	github.com/fatih/color v1.18.0
 	github.com/kellegous/buildname v0.2.0
 	github.com/kellegous/poop v0.8.0
