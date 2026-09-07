@@ -1,16 +1,9 @@
 package zap
 
-import (
-	"context"
-	"sync"
-)
-
 type circBuffer[T any] struct {
-	mu      sync.Mutex
-	changed chan struct{}
-	items   []T
-	head    int
-	count   int
+	items []T
+	head  int
+	count int
 }
 
 func newCircBuffer[T any](size int) *circBuffer[T] {
@@ -19,15 +12,15 @@ func newCircBuffer[T any](size int) *circBuffer[T] {
 	}
 
 	return &circBuffer[T]{
-		items:   make([]T, size),
-		changed: make(chan struct{}),
+		items: make([]T, size),
 	}
 }
 
-func (b *circBuffer[T]) Push(item T) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *circBuffer[T]) Len() int {
+	return b.count
+}
 
+func (b *circBuffer[T]) Push(item T) {
 	if b.count == len(b.items) {
 		b.items[b.head] = item
 		b.head = (b.head + 1) % len(b.items)
@@ -36,30 +29,17 @@ func (b *circBuffer[T]) Push(item T) {
 		b.items[index] = item
 		b.count++
 	}
-
-	close(b.changed)
-	b.changed = make(chan struct{})
 }
 
-func (b *circBuffer[T]) Pop(ctx context.Context) (T, error) {
+func (b *circBuffer[T]) Pop() (T, bool) {
 	var zero T
-	for {
-		b.mu.Lock()
-		if b.count > 0 {
-			item := b.items[b.head]
-			b.items[b.head] = zero
-			b.head = (b.head + 1) % len(b.items)
-			b.count--
-			b.mu.Unlock()
-			return item, nil
-		}
-		changed := b.changed
-		b.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			return zero, ctx.Err()
-		case <-changed:
-		}
+	if b.count == 0 {
+		return zero, false
 	}
+
+	item := b.items[b.head]
+	b.items[b.head] = zero
+	b.head = (b.head + 1) % len(b.items)
+	b.count--
+	return item, true
 }
