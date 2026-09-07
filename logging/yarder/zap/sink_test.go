@@ -39,15 +39,23 @@ func (c *recordingYarderClient) Log(_ context.Context, req *connect.Request[yard
 
 func TestGetRPCURL(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		raw  string
-		want string
+		Name        string
+		URLInput    string
+		ExpectedURL string
 	}{
-		{name: "http", raw: "yarder+http://example.com/logs?app=test", want: "http://example.com/logs"},
-		{name: "https", raw: "yarder+https://example.com/logs?app=test", want: "https://example.com/logs"},
+		{
+			Name:        "http",
+			URLInput:    "yarder+http://example.com/logs?app=test",
+			ExpectedURL: "http://example.com/logs",
+		},
+		{
+			Name:        "https",
+			URLInput:    "yarder+https://example.com/logs?app=test",
+			ExpectedURL: "https://example.com/logs",
+		},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			u, err := url.Parse(tt.raw)
+		t.Run(tt.Name, func(t *testing.T) {
+			u, err := url.Parse(tt.URLInput)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -55,8 +63,8 @@ func TestGetRPCURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != tt.want {
-				t.Fatalf("getRpcURL() = %q, want %q", got, tt.want)
+			if got != tt.ExpectedURL {
+				t.Fatalf("getRpcURL() = %q, want %q", got, tt.ExpectedURL)
 			}
 		})
 	}
