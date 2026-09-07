@@ -2,6 +2,7 @@ package zap
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,6 +29,7 @@ const (
 
 type sink struct {
 	buffer *circBuffer[[]byte]
+	cancel context.CancelFunc
 }
 
 func (s *sink) Write(p []byte) (int, error) {
@@ -66,18 +68,26 @@ func newSink(u *url.URL) (zap.Sink, error) {
 
 	client := yarder_connect.NewYarderClient(http.DefaultClient, rpcURL)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	go func() {
 		for {
-			if err := deliver(context.Background(), client, &yarder.LogReq{
+			data, err := buffer.Pop(ctx)
+			if err != nil {
+				return
+			}
+
+			// TODO(kellegous): What happens here if the context is cancelled? Does this keep retrying?
+			if err := deliver(ctx, client, &yarder.LogReq{
 				App:  app,
-				Data: buffer.Pop(),
+				Data: data,
 			}); err != nil {
-				continue
+				return
 			}
 		}
 	}()
 
-	return &sink{buffer: buffer}, nil
+	return &sink{buffer: buffer, cancel: cancel}, nil
 }
 
 func getInt(v string, def int) (int, error) {
@@ -117,6 +127,9 @@ func deliver(ctx context.Context, client yarder_connect.YarderClient, req *yarde
 		retry.MaxDelay(maxRetryDelay),
 		retry.DelayType(retry.BackOffDelay),
 		retry.LastErrorOnly(true),
+		retry.RetryIf(func(err error) bool {
+			return !errors.Is(err, context.Canceled)
+		}),
 	)
 }
 

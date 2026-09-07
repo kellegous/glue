@@ -1,13 +1,16 @@
 package zap
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type circBuffer[T any] struct {
-	mu       sync.Mutex
-	notEmpty *sync.Cond
-	items    []T
-	head     int
-	count    int
+	mu      sync.Mutex
+	changed chan struct{}
+	items   []T
+	head    int
+	count   int
 }
 
 func newCircBuffer[T any](size int) *circBuffer[T] {
@@ -15,11 +18,10 @@ func newCircBuffer[T any](size int) *circBuffer[T] {
 		panic("size must be greater than 0")
 	}
 
-	buffer := &circBuffer[T]{
-		items: make([]T, size),
+	return &circBuffer[T]{
+		items:   make([]T, size),
+		changed: make(chan struct{}),
 	}
-	buffer.notEmpty = sync.NewCond(&buffer.mu)
-	return buffer
 }
 
 func (b *circBuffer[T]) Push(item T) {
@@ -29,27 +31,35 @@ func (b *circBuffer[T]) Push(item T) {
 	if b.count == len(b.items) {
 		b.items[b.head] = item
 		b.head = (b.head + 1) % len(b.items)
-		return
+	} else {
+		index := (b.head + b.count) % len(b.items)
+		b.items[index] = item
+		b.count++
 	}
 
-	index := (b.head + b.count) % len(b.items)
-	b.items[index] = item
-	b.count++
-	b.notEmpty.Signal()
+	close(b.changed)
+	b.changed = make(chan struct{})
 }
 
-func (b *circBuffer[T]) Pop() T {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for b.count == 0 {
-		b.notEmpty.Wait()
-	}
-
-	item := b.items[b.head]
+func (b *circBuffer[T]) Pop(ctx context.Context) (T, error) {
 	var zero T
-	b.items[b.head] = zero
-	b.head = (b.head + 1) % len(b.items)
-	b.count--
-	return item
+	for {
+		b.mu.Lock()
+		if b.count > 0 {
+			item := b.items[b.head]
+			b.items[b.head] = zero
+			b.head = (b.head + 1) % len(b.items)
+			b.count--
+			b.mu.Unlock()
+			return item, nil
+		}
+		changed := b.changed
+		b.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return zero, ctx.Err()
+		case <-changed:
+		}
+	}
 }
