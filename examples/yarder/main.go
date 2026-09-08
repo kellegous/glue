@@ -14,14 +14,15 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/kellegous/poop"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/emptypb"
+
 	"github.com/kellegous/glue/fn"
 	"github.com/kellegous/glue/logging"
 	"github.com/kellegous/glue/logging/yarder"
 	"github.com/kellegous/glue/logging/yarder/yarder_connect"
 	yarder_zap "github.com/kellegous/glue/logging/yarder/zap"
-	"github.com/kellegous/poop"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func main() {
@@ -136,7 +137,7 @@ func runServer(ctx context.Context) (string, error) {
 
 	go func() {
 		<-ctx.Done()
-		s.Shutdown(context.Background())
+		_ = s.Shutdown(context.Background())
 	}()
 
 	ch := make(chan error)
