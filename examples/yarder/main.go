@@ -93,7 +93,7 @@ func (s *service) Log(
 ) (*connect.Response[emptypb.Empty], error) {
 	msg := req.Msg
 
-	if s.rng.Float64() < 0.5 {
+	if s.rng.Float64() > 0.5 {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("service is unavailable"))
 	}
 

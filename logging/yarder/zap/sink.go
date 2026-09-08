@@ -1,6 +1,7 @@
 package zap
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -26,8 +27,8 @@ const (
 	defaultDrainTimeout = time.Minute
 
 	initialRetryDelay = 100 * time.Millisecond
-	maxRetryDelay     = time.Minute
-	requestTimeout    = time.Minute
+	maxRetryDelay     = 10 * time.Second
+	requestTimeout    = 30 * time.Second
 )
 
 type sink struct {
@@ -47,7 +48,7 @@ func (s *sink) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	s.buffer.Push(p)
+	s.buffer.Push(bytes.Clone(p))
 	s.wake()
 	return len(p), nil
 }
