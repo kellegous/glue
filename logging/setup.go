@@ -5,10 +5,32 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func Setup() (*zap.Logger, error) {
+type Option func(*zap.Config) error
+
+func WithLevel(level zap.AtomicLevel) Option {
+	return func(c *zap.Config) error {
+		c.Level = level
+		return nil
+	}
+}
+
+func WithOutputPaths(paths ...string) Option {
+	return func(c *zap.Config) error {
+		c.OutputPaths = paths
+		return nil
+	}
+}
+
+func Setup(opts ...Option) (*zap.Logger, error) {
 	c := zap.NewProductionConfig()
 	c.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
 	c.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+
+	for _, opt := range opts {
+		if err := opt(&c); err != nil {
+			return nil, err
+		}
+	}
 
 	l, err := c.Build()
 	if err != nil {
@@ -19,8 +41,8 @@ func Setup() (*zap.Logger, error) {
 	return l, nil
 }
 
-func MustSetup() *zap.Logger {
-	l, err := Setup()
+func MustSetup(opts ...Option) *zap.Logger {
+	l, err := Setup(opts...)
 	if err != nil {
 		panic(err)
 	}
