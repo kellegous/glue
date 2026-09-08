@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -82,7 +82,37 @@ func run(ctx context.Context) (err error) {
 }
 
 type service struct {
-	rng *rand.Rand
+	lck sync.RWMutex
+	up  bool
+}
+
+func (s *service) isUp() bool {
+	s.lck.RLock()
+	defer s.lck.RUnlock()
+	return s.up
+}
+
+func newService(ctx context.Context) *service {
+	s := &service{
+		up: true,
+	}
+
+	// every 10 seconds, the service becomes unavailable for 10 seconds
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+			}
+
+			s.lck.Lock()
+			s.up = !s.up
+			s.lck.Unlock()
+		}
+	}()
+
+	return s
 }
 
 var _ yarder_connect.YarderHandler = (*service)(nil)
@@ -93,13 +123,13 @@ func (s *service) Log(
 ) (*connect.Response[emptypb.Empty], error) {
 	msg := req.Msg
 
-	if s.rng.Float64() > 0.5 {
+	if !s.isUp() {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("service is unavailable"))
 	}
 
 	data := struct {
-		App string
-		Log json.RawMessage
+		App string          `json:"app"`
+		Log json.RawMessage `json:"log"`
 	}{
 		App: msg.App,
 		Log: json.RawMessage(msg.Data),
@@ -121,14 +151,13 @@ func runServer(ctx context.Context) (string, error) {
 		return "", poop.Chain(err)
 	}
 
+	svc := newService(ctx)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	seed := uint64(time.Now().UnixNano())
-	path, handler := yarder_connect.NewYarderHandler(&service{
-		rng: rand.New(rand.NewPCG(seed, seed)),
-	})
+	path, handler := yarder_connect.NewYarderHandler(svc)
 	mux.Handle(path, handler)
 
 	s := &http.Server{
