@@ -7,9 +7,9 @@ import (
 
 type Option func(*zap.Config) error
 
-func WithLevel(level zap.AtomicLevel) Option {
+func WithLevel(level zapcore.Level) Option {
 	return func(c *zap.Config) error {
-		c.Level = level
+		c.Level = zap.NewAtomicLevelAt(level)
 		return nil
 	}
 }
