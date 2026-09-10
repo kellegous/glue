@@ -180,7 +180,7 @@ func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T)
 
 func TestDeliverRetriesTransientFailures(t *testing.T) {
 	client := &recordingYarderClient{errors: []error{errors.New("temporary failure")}}
-	if err := deliver(context.Background(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}); err != nil {
+	if err := deliver(context.Background(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}, 2); err != nil {
 		t.Fatalf("deliver() = %v, want nil", err)
 	}
 	if len(client.requests) != 2 {

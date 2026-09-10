@@ -25,6 +25,7 @@ const (
 	httpsScheme         = "yarder+https"
 	defaultQueueSize    = 100
 	defaultDrainTimeout = time.Minute
+	defaultRetryLimit   = 5
 
 	initialRetryDelay = 100 * time.Millisecond
 	maxRetryDelay     = 10 * time.Second
@@ -35,6 +36,7 @@ type sink struct {
 	lck          sync.RWMutex
 	buffer       *circBuffer[[]byte]
 	drainTimeout time.Duration
+	retryLimit   uint
 	drained      chan struct{}
 	changed      chan struct{}
 	closed       bool
@@ -113,6 +115,11 @@ func newSink(u *url.URL) (zap.Sink, error) {
 		return nil, poop.Chain(err)
 	}
 
+	retryLimit, err := getUint(q.Get("retry-limit"), defaultRetryLimit)
+	if err != nil {
+		return nil, poop.Chain(err)
+	}
+
 	buffer := newCircBuffer[[]byte](queueSize)
 
 	client := yarder_connect.NewYarderClient(http.DefaultClient, rpcURL)
@@ -122,6 +129,7 @@ func newSink(u *url.URL) (zap.Sink, error) {
 	s := &sink{
 		buffer:       buffer,
 		drainTimeout: drainTimeout,
+		retryLimit:   retryLimit,
 		changed:      make(chan struct{}, 1),
 	}
 
@@ -164,10 +172,15 @@ func (s *sink) deliverPending(
 
 		// TODO(kellegous): What happens here if the context is cancelled? Does this keep retrying?
 		if ok {
-			if err := deliver(ctx, client, &yarder.LogReq{
-				App:  app,
-				Data: data,
-			}); err != nil {
+			if err := deliver(
+				ctx,
+				client,
+				&yarder.LogReq{
+					App:  app,
+					Data: data,
+				},
+				s.retryLimit,
+			); err != nil {
 				continue
 			}
 		} else {
@@ -191,6 +204,17 @@ func getInt(v string, def int) (int, error) {
 	return limit, nil
 }
 
+func getUint(v string, def uint) (uint, error) {
+	if v == "" {
+		return def, nil
+	}
+	limit, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return 0, poop.Chain(err)
+	}
+	return uint(limit), nil
+}
+
 func getDuration(v string, def time.Duration) (time.Duration, error) {
 	if v == "" {
 		return def, nil
@@ -202,7 +226,12 @@ func getDuration(v string, def time.Duration) (time.Duration, error) {
 	return duration, nil
 }
 
-func deliver(ctx context.Context, client yarder_connect.YarderClient, req *yarder.LogReq) error {
+func deliver(
+	ctx context.Context,
+	client yarder_connect.YarderClient,
+	req *yarder.LogReq,
+	retryLimit uint,
+) error {
 	return retry.Do(
 		func() error {
 			ctx, done := context.WithTimeout(ctx, requestTimeout)
@@ -212,7 +241,7 @@ func deliver(ctx context.Context, client yarder_connect.YarderClient, req *yarde
 			return poop.Chain(err)
 		},
 		retry.Context(ctx),
-		retry.Attempts(0), // Retry indefinitely.
+		retry.Attempts(retryLimit),
 		retry.Delay(initialRetryDelay),
 		retry.MaxDelay(maxRetryDelay),
 		retry.DelayType(retry.BackOffDelay),
