@@ -230,3 +230,69 @@ func TestMigrator_Migrate(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrator_FactoryReset(t *testing.T) {
+	ctx := t.Context()
+	migrations := []Migration{
+		{Up: "CREATE TABLE a (x INTEGER)", Down: "DROP TABLE a"},
+		{Up: "CREATE TABLE b (y INTEGER)", Down: "DROP TABLE b"},
+	}
+
+	t.Run("runs every down migration and removes metadata", func(t *testing.T) {
+		db := openTestDB(t)
+		migrator := NewMigrator(db, migrations)
+		if err := migrator.Migrate(ctx); err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+
+		if err := migrator.FactoryReset(ctx); err != nil {
+			t.Fatalf("FactoryReset: %v", err)
+		}
+
+		if got := schemaVersion(t, db); got != 0 {
+			t.Fatalf("user_version = %d, want 0", got)
+		}
+		for _, name := range []string{"a", "b", "migrations"} {
+			if tableExists(t, db, name) {
+				t.Fatalf("did not expect %s table after reset", name)
+			}
+		}
+	})
+
+	t.Run("rolls back when a down migration fails", func(t *testing.T) {
+		db := openTestDB(t)
+		migrator := NewMigrator(db, migrations)
+		if err := migrator.Migrate(ctx); err != nil {
+			t.Fatalf("Migrate: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE migrations SET down = 'THIS IS NOT VALID SQL' WHERE version = 2"); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := migrator.FactoryReset(ctx); err == nil {
+			t.Fatal("FactoryReset: expected error, got nil")
+		}
+
+		if got := schemaVersion(t, db); got != 2 {
+			t.Fatalf("user_version = %d, want 2", got)
+		}
+		for _, name := range []string{"a", "b", "migrations"} {
+			if !tableExists(t, db, name) {
+				t.Fatalf("expected %s table after failed reset", name)
+			}
+		}
+	})
+
+	t.Run("is safe on an empty database", func(t *testing.T) {
+		db := openTestDB(t)
+		if err := NewMigrator(db, migrations).FactoryReset(ctx); err != nil {
+			t.Fatalf("FactoryReset: %v", err)
+		}
+		if got := schemaVersion(t, db); got != 0 {
+			t.Fatalf("user_version = %d, want 0", got)
+		}
+		if tableExists(t, db, "migrations") {
+			t.Fatal("did not expect migrations table after reset")
+		}
+	})
+}

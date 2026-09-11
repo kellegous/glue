@@ -10,6 +10,7 @@ import (
 	"github.com/kellegous/glue/fn"
 )
 
+// Migrator applies and reverses an ordered sequence of database migrations.
 type Migrator struct {
 	db         *sql.DB
 	migrations []Migration
@@ -21,6 +22,8 @@ type dbOrTx interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// NewMigrator returns a Migrator that manages migrations on db. Migrations are
+// applied in slice order, with each element advancing the schema by one version.
 func NewMigrator(db *sql.DB, migrations []Migration) *Migrator {
 	return &Migrator{db: db, migrations: migrations}
 }
@@ -31,6 +34,13 @@ func ensureMigrationsTable(ctx context.Context, tx dbOrTx) error {
 		version INTEGER PRIMARY KEY,
 		down TEXT NOT NULL
 	  )`); err != nil {
+		return poop.Chain(err)
+	}
+	return nil
+}
+
+func dropMigrationsTable(ctx context.Context, tx dbOrTx) error {
+	if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS migrations"); err != nil {
 		return poop.Chain(err)
 	}
 	return nil
@@ -102,6 +112,9 @@ func (m *Migrator) migrateDown(ctx context.Context, tx *sql.Tx, version int) (in
 	return to, nil
 }
 
+// Migrate brings the database schema to the version represented by the
+// configured migrations. It applies pending migrations or reverses migrations
+// that are no longer configured, all within one transaction.
 func (m *Migrator) Migrate(ctx context.Context) error {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -132,6 +145,35 @@ func (m *Migrator) Migrate(ctx context.Context) error {
 		if err != nil {
 			return poop.Chain(err)
 		}
+	}
+
+	return tx.Commit()
+}
+
+// FactoryReset runs every applied down migration, returning the database to an
+// empty state. It also removes the migrations metadata table, which Migrate
+// recreates when migrations are applied again.
+func (m *Migrator) FactoryReset(ctx context.Context) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer fn.WithAbandon(tx.Rollback)
+
+	active, err := getSchemaVersion(ctx, tx)
+	if err != nil {
+		return poop.Chain(err)
+	}
+
+	for active > 0 {
+		active, err = m.migrateDown(ctx, tx, active)
+		if err != nil {
+			return poop.Chain(err)
+		}
+	}
+
+	if err := dropMigrationsTable(ctx, tx); err != nil {
+		return poop.Chain(err)
 	}
 
 	return tx.Commit()
