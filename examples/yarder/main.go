@@ -70,9 +70,7 @@ func run(ctx context.Context) (err error) {
 			case <-time.After(time.Second):
 			}
 
-			lg.Info("sending log",
-				zap.Int("seq", i),
-				zap.Time("time", time.Now()))
+			lg.Info("sending log", zap.Int("seq", i))
 		}
 	}()
 

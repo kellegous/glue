@@ -38,14 +38,14 @@ type OutputPathsFlag struct {
 	paths map[string]bool
 }
 
-func NewOutputPathsFlag(paths ...string) *OutputPathsFlag {
-	f := &OutputPathsFlag{
-		paths: make(map[string]bool),
-	}
+func NewOutputPathsFlag(paths ...string) OutputPathsFlag {
+	ps := make(map[string]bool)
 	for _, path := range paths {
-		f.paths[path] = true
+		ps[path] = true
 	}
-	return f
+	return OutputPathsFlag{
+		paths: ps,
+	}
 }
 
 func (f *OutputPathsFlag) Set(s string) error {

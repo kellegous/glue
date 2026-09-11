@@ -82,7 +82,7 @@ func TestOutputPathsFlag(t *testing.T) {
 
 	for _, tt := range []struct {
 		Name     string
-		Flag     *OutputPathsFlag
+		Flag     OutputPathsFlag
 		Inputs   []string
 		Expected Expected
 	}{
@@ -99,7 +99,7 @@ func TestOutputPathsFlag(t *testing.T) {
 		},
 		{
 			Name:     "set initializes a zero value",
-			Flag:     &OutputPathsFlag{},
+			Flag:     OutputPathsFlag{},
 			Inputs:   []string{"file.log"},
 			Expected: Expected{Paths: []string{"file.log"}},
 		},
