@@ -78,37 +78,120 @@ func TestGetRPCURL(t *testing.T) {
 	}
 }
 
-func TestGetIntAndDuration(t *testing.T) {
-	if got, err := getInt("", 10); err != nil || got != 10 {
-		t.Fatalf("getInt(empty) = (%d, %v), want (10, nil)", got, err)
-	}
-	if got, err := getInt("42", 10); err != nil || got != 42 {
-		t.Fatalf("getInt(valid) = (%d, %v), want (42, nil)", got, err)
-	}
-	if _, err := getInt("nope", 10); err == nil {
-		t.Fatal("getInt(invalid) succeeded")
+func TestGetInt(t *testing.T) {
+	type Expected struct {
+		Value int
+		Error bool
 	}
 
-	if got, err := getDuration("", time.Second); err != nil || got != time.Second {
-		t.Fatalf("getDuration(empty) = (%s, %v), want (1s, nil)", got, err)
+	for _, tt := range []struct {
+		Name     string
+		Input    string
+		Default  int
+		Expected Expected
+	}{
+		{
+			Name:     "default",
+			Input:    "",
+			Default:  10,
+			Expected: Expected{Value: 10, Error: false},
+		},
+		{
+			Name:     "valid",
+			Input:    "42",
+			Default:  10,
+			Expected: Expected{Value: 42, Error: false},
+		},
+		{
+			Name:     "invalid",
+			Input:    "nope",
+			Default:  10,
+			Expected: Expected{Value: 0, Error: true},
+		},
+	} {
+		t.Run(tt.Name, func(t *testing.T) {
+			got, err := getInt(tt.Input, tt.Default)
+			if (err != nil) != tt.Expected.Error {
+				t.Fatalf("getInt(%q, %d) error = %v, want error: %t", tt.Input, tt.Default, err, tt.Expected.Error)
+			}
+			if got != tt.Expected.Value {
+				t.Fatalf("getInt(%q, %d) = %d, want %d", tt.Input, tt.Default, got, tt.Expected.Value)
+			}
+		})
 	}
-	if got, err := getDuration("250ms", time.Second); err != nil || got != 250*time.Millisecond {
-		t.Fatalf("getDuration(valid) = (%s, %v), want (250ms, nil)", got, err)
+}
+
+func TestGetDuration(t *testing.T) {
+	type Expected struct {
+		Value time.Duration
+		Error bool
 	}
-	if _, err := getDuration("soon", time.Second); err == nil {
-		t.Fatal("getDuration(invalid) succeeded")
+	for _, tt := range []struct {
+		Name     string
+		Input    string
+		Default  time.Duration
+		Expected Expected
+	}{
+		{
+			Name:     "default",
+			Input:    "",
+			Default:  time.Second,
+			Expected: Expected{Value: time.Second, Error: false},
+		},
+		{
+			Name:     "valid",
+			Input:    "250ms",
+			Default:  time.Second,
+			Expected: Expected{Value: 250 * time.Millisecond, Error: false},
+		},
+		{
+			Name:     "invalid",
+			Input:    "soon",
+			Default:  time.Second,
+			Expected: Expected{Value: 0, Error: true},
+		},
+	} {
+		t.Run(tt.Name, func(t *testing.T) {
+			got, err := getDuration(tt.Input, tt.Default)
+			if (err != nil) != tt.Expected.Error {
+				t.Fatalf("getDuration(%q, %s) error = %v, want error: %t", tt.Input, tt.Default, err, tt.Expected.Error)
+			}
+			if got != tt.Expected.Value {
+				t.Fatalf("getDuration(%q, %s) = %s, want %s", tt.Input, tt.Default, got, tt.Expected.Value)
+			}
+		})
 	}
 }
 
 func TestSinkWriteCloseAndSync(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[[]byte](2), changed: make(chan struct{}, 1), drainTimeout: time.Second}
+	s := &sink{
+		buffer:       newCircBuffer[*yarder.LogReq](2),
+		changed:      make(chan struct{}, 1),
+		drainTimeout: time.Second,
+		app:          "test-app",
+		writerKey:    [16]byte{1},
+	}
 
 	if got, err := s.Write([]byte("first")); err != nil || got != len("first") {
 		t.Fatalf("Write() = (%d, %v), want (5, nil)", got, err)
 	}
-	data, ok := s.buffer.Pop()
-	if !ok || string(data) != "first" {
-		t.Fatalf("buffer.Pop() = (%q, %t), want (first, true)", data, ok)
+	req, ok := s.buffer.Pop()
+	if !ok || string(req.Data) != "first" {
+		t.Fatalf("buffer.Pop() = (%+v, %t), want first data", req, ok)
+	}
+	if req.App != "test-app" {
+		t.Fatalf("request app = %q, want test-app", req.App)
+	}
+	if req.WriterSeq != 1 {
+		t.Fatalf("request writer sequence = %d, want 1", req.WriterSeq)
+	}
+	if len(req.WriterKey) != len(s.writerKey) {
+		t.Fatalf("request writer key length = %d, want %d", len(req.WriterKey), len(s.writerKey))
+	}
+	var writerKey [16]byte
+	copy(writerKey[:], req.WriterKey)
+	if writerKey != s.writerKey {
+		t.Fatalf("request writer key = %x, want %x", req.WriterKey, s.writerKey)
 	}
 
 	drained := s.subscribeForDrain()
@@ -135,14 +218,14 @@ func TestSinkWriteCloseAndSync(t *testing.T) {
 }
 
 func TestSinkSyncTimesOut(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[[]byte](1), changed: make(chan struct{}, 1), drainTimeout: time.Millisecond}
+	s := &sink{buffer: newCircBuffer[*yarder.LogReq](1), changed: make(chan struct{}, 1), drainTimeout: time.Millisecond}
 	if err := s.Sync(); err == nil {
 		t.Fatal("Sync() succeeded without a drain acknowledgement")
 	}
 }
 
 func TestSinkCloseWakesWorker(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[[]byte](1), changed: make(chan struct{}, 1)}
+	s := &sink{buffer: newCircBuffer[*yarder.LogReq](1), changed: make(chan struct{}, 1)}
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close() = %v", err)
 	}
@@ -154,12 +237,12 @@ func TestSinkCloseWakesWorker(t *testing.T) {
 }
 
 func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[[]byte](3), drained: make(chan struct{})}
-	s.buffer.Push([]byte("one"))
-	s.buffer.Push([]byte("two"))
+	s := &sink{buffer: newCircBuffer[*yarder.LogReq](3), drained: make(chan struct{})}
+	s.buffer.Push(&yarder.LogReq{App: "test-app", Data: []byte("one"), WriterSeq: 1})
+	s.buffer.Push(&yarder.LogReq{App: "test-app", Data: []byte("two"), WriterSeq: 2})
 	client := &recordingYarderClient{}
 
-	if keepRunning := s.deliverPending(context.Background(), client, "test-app"); !keepRunning {
+	if keepRunning := s.deliverPending(context.Background(), client); !keepRunning {
 		t.Fatal("deliverPending() stopped an open sink")
 	}
 	if len(client.requests) != 2 {
@@ -171,6 +254,9 @@ func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T)
 		}
 		if got := client.requests[i].App; got != "test-app" {
 			t.Fatalf("request %d app = %q, want test-app", i, got)
+		}
+		if got, want := client.requests[i].WriterSeq, uint64(i+1); got != want {
+			t.Fatalf("request %d writer sequence = %d, want %d", i, got, want)
 		}
 	}
 	if s.drained != nil {

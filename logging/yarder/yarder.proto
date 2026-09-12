@@ -10,5 +10,7 @@ service Yarder { rpc Log(LogReq) returns (google.protobuf.Empty); }
 
 message LogReq {
   string app = 1;
-  bytes data = 2;
+  bytes writer_key = 2;
+  uint64 writer_seq = 3;
+  bytes data = 4;
 }

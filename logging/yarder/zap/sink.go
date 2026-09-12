@@ -3,12 +3,14 @@ package zap
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -34,12 +36,16 @@ const (
 
 type sink struct {
 	lck          sync.RWMutex
-	buffer       *circBuffer[[]byte]
+	buffer       *circBuffer[*yarder.LogReq]
 	drainTimeout time.Duration
 	retryLimit   uint
 	drained      chan struct{}
 	changed      chan struct{}
 	closed       bool
+
+	app       string
+	writerKey [16]byte
+	writerSeq atomic.Uint64
 }
 
 func (s *sink) Write(p []byte) (int, error) {
@@ -50,7 +56,12 @@ func (s *sink) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 
-	s.buffer.Push(bytes.Clone(p))
+	s.buffer.Push(&yarder.LogReq{
+		App:       s.app,
+		Data:      bytes.Clone(p),
+		WriterKey: s.writerKey[:],
+		WriterSeq: s.writerSeq.Add(1),
+	})
 	s.wake()
 	return len(p), nil
 }
@@ -120,7 +131,7 @@ func newSink(u *url.URL) (zap.Sink, error) {
 		return nil, poop.Chain(err)
 	}
 
-	buffer := newCircBuffer[[]byte](queueSize)
+	buffer := newCircBuffer[*yarder.LogReq](queueSize)
 
 	client := yarder_connect.NewYarderClient(http.DefaultClient, rpcURL)
 
@@ -131,6 +142,11 @@ func newSink(u *url.URL) (zap.Sink, error) {
 		drainTimeout: drainTimeout,
 		retryLimit:   retryLimit,
 		changed:      make(chan struct{}, 1),
+		app:          app,
+	}
+
+	if _, err := rand.Read(s.writerKey[:]); err != nil {
+		return nil, poop.Chain(err)
 	}
 
 	go func() {
@@ -141,7 +157,7 @@ func newSink(u *url.URL) (zap.Sink, error) {
 			case <-s.changed:
 			}
 
-			if !s.deliverPending(ctx, client, app) {
+			if !s.deliverPending(ctx, client) {
 				return
 			}
 		}
@@ -160,10 +176,9 @@ func (s *sink) wake() {
 func (s *sink) deliverPending(
 	ctx context.Context,
 	client yarder_connect.YarderClient,
-	app string,
 ) bool {
 	for {
-		data, ok, draining, closed := func() ([]byte, bool, bool, bool) {
+		req, ok, draining, closed := func() (*yarder.LogReq, bool, bool, bool) {
 			s.lck.Lock()
 			defer s.lck.Unlock()
 			data, ok := s.buffer.Pop()
@@ -175,10 +190,7 @@ func (s *sink) deliverPending(
 			if err := deliver(
 				ctx,
 				client,
-				&yarder.LogReq{
-					App:  app,
-					Data: data,
-				},
+				req,
 				s.retryLimit,
 			); err != nil {
 				continue
