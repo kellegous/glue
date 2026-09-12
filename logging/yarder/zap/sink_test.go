@@ -242,7 +242,7 @@ func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T)
 	s.buffer.Push(&yarder.LogReq{App: "test-app", Data: []byte("two"), WriterSeq: 2})
 	client := &recordingYarderClient{}
 
-	if keepRunning := s.deliverPending(context.Background(), client); !keepRunning {
+	if keepRunning := s.deliverPending(t.Context(), client); !keepRunning {
 		t.Fatal("deliverPending() stopped an open sink")
 	}
 	if len(client.requests) != 2 {
@@ -266,7 +266,7 @@ func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T)
 
 func TestDeliverRetriesTransientFailures(t *testing.T) {
 	client := &recordingYarderClient{errors: []error{errors.New("temporary failure")}}
-	if err := deliver(context.Background(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}, 2); err != nil {
+	if err := deliver(t.Context(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}, 2); err != nil {
 		t.Fatalf("deliver() = %v, want nil", err)
 	}
 	if len(client.requests) != 2 {

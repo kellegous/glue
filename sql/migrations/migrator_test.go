@@ -1,7 +1,6 @@
 package migrations
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -25,7 +24,7 @@ func openTestDB(t *testing.T) *sql.DB {
 func schemaVersion(t *testing.T, db *sql.DB) int {
 	t.Helper()
 	var v int
-	if err := db.QueryRowContext(context.Background(), "PRAGMA user_version").Scan(&v); err != nil {
+	if err := db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&v); err != nil {
 		t.Fatal(err)
 	}
 	return v
@@ -35,7 +34,7 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 	var n int
 	err := db.QueryRowContext(
-		context.Background(),
+		t.Context(),
 		`SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name = ?`,
 		name,
 	).Scan(&n)

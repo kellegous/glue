@@ -188,7 +188,7 @@ func TestCORSWrapUnary(t *testing.T) {
 				return connect.NewResponse(&struct{}{}), nil
 			})
 
-			res, err := wrapped(context.Background(), connect.NewRequest(&struct{}{}))
+			res, err := wrapped(t.Context(), connect.NewRequest(&struct{}{}))
 			if !errors.Is(err, tt.Expected.Err) {
 				t.Fatalf("error: got %v, want %v", err, tt.Expected.Err)
 			}
@@ -246,7 +246,7 @@ func TestCORSWrapStreamingClient(t *testing.T) {
 				return wantConn
 			})
 
-			gotConn := wrapped(context.Background(), tt.Spec)
+			gotConn := wrapped(t.Context(), tt.Spec)
 			if !called {
 				t.Fatal("expected next streaming client func to be called")
 			}
@@ -329,7 +329,7 @@ func TestCORSWrapStreamingHandler(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			client := connect.NewClient[emptypb.Empty, emptypb.Empty](server.Client(), server.URL+path)
-			stream, err := client.CallServerStream(context.Background(), connect.NewRequest(&emptypb.Empty{}))
+			stream, err := client.CallServerStream(t.Context(), connect.NewRequest(&emptypb.Empty{}))
 			if err != nil {
 				t.Fatalf("CallServerStream: %v", err)
 			}
