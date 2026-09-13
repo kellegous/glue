@@ -23,27 +23,25 @@ import (
 )
 
 const (
-	httpScheme          = "yarder+http"
-	httpsScheme         = "yarder+https"
-	defaultQueueSize    = 100
-	defaultDrainTimeout = time.Minute
-	defaultRetryLimit   = 5
+	httpScheme  = "yarder+http"
+	httpsScheme = "yarder+https"
 
-	initialRetryDelay = 100 * time.Millisecond
-	maxRetryDelay     = 10 * time.Second
-	requestTimeout    = 30 * time.Second
+	defaultQueueSize      = 100
+	defaultDrainTimeout   = time.Minute
+	defaultRetryLimit     = 5
+	defaultBaseRetryDelay = 100 * time.Millisecond
+	defaultMaxRetryDelay  = 10 * time.Second
+	defaultRequestTimeout = 30 * time.Second
 )
 
 type sink struct {
-	lck          sync.RWMutex
-	buffer       *circBuffer[*yarder.LogReq]
-	drainTimeout time.Duration
-	retryLimit   uint
-	drained      chan struct{}
-	changed      chan struct{}
-	closed       bool
+	lck     sync.RWMutex
+	buffer  *circBuffer[*yarder.LogReq]
+	options *RegisterOptions
+	drained chan struct{}
+	changed chan struct{}
+	closed  bool
 
-	app       string
 	writerKey [16]byte
 	writerSeq atomic.Uint64
 }
@@ -57,7 +55,7 @@ func (s *sink) Write(p []byte) (int, error) {
 	}
 
 	s.buffer.Push(&yarder.LogReq{
-		App:       s.app,
+		App:       s.options.app,
 		Data:      bytes.Clone(p),
 		WriterKey: s.writerKey[:],
 		WriterSeq: s.writerSeq.Add(1),
@@ -78,7 +76,7 @@ func (s *sink) Sync() error {
 	select {
 	case <-s.subscribeForDrain():
 		return nil
-	case <-time.After(s.drainTimeout):
+	case <-time.After(s.options.drainTimeout):
 		return poop.New("drain timeout")
 	}
 }
@@ -111,38 +109,54 @@ func newSink(u *url.URL) (zap.Sink, error) {
 
 	q := u.Query()
 
-	app := q.Get("app")
-	if app == "" {
-		return nil, poop.New("app is required")
-	}
+	options := globalRegisterOptions
 
-	queueSize, err := getInt(q.Get("queue-size"), defaultQueueSize)
+	options.app = getString(q.Get("app"), options.app)
+
+	options.queueSize, err = getInt(q.Get("queue-size"), options.queueSize)
 	if err != nil {
 		return nil, poop.Chain(err)
 	}
 
-	drainTimeout, err := getDuration(q.Get("drain-timeout"), defaultDrainTimeout)
+	options.drainTimeout, err = getDuration(q.Get("drain-timeout"), options.drainTimeout)
 	if err != nil {
 		return nil, poop.Chain(err)
 	}
 
-	retryLimit, err := getUint(q.Get("retry-limit"), defaultRetryLimit)
+	options.retryLimit, err = getUint(q.Get("retry-limit"), options.retryLimit)
 	if err != nil {
 		return nil, poop.Chain(err)
 	}
 
-	buffer := newCircBuffer[*yarder.LogReq](queueSize)
+	options.baseRetryDelay, err = getDuration(q.Get("base-retry-delay"), options.baseRetryDelay)
+	if err != nil {
+		return nil, poop.Chain(err)
+	}
+
+	options.maxRetryDelay, err = getDuration(q.Get("max-retry-delay"), options.maxRetryDelay)
+	if err != nil {
+		return nil, poop.Chain(err)
+	}
+
+	options.requestTimeout, err = getDuration(q.Get("request-timeout"), options.requestTimeout)
+	if err != nil {
+		return nil, poop.Chain(err)
+	}
+
+	if options.queueSize <= 0 {
+		return nil, poop.New("queue size must be greater than 0")
+	}
+
+	buffer := newCircBuffer[*yarder.LogReq](options.queueSize)
 
 	client := yarder_connect.NewYarderClient(http.DefaultClient, rpcURL)
 
 	ctx := context.Background()
 
 	s := &sink{
-		buffer:       buffer,
-		drainTimeout: drainTimeout,
-		retryLimit:   retryLimit,
-		changed:      make(chan struct{}, 1),
-		app:          app,
+		buffer:  buffer,
+		options: &options,
+		changed: make(chan struct{}, 1),
 	}
 
 	if _, err := rand.Read(s.writerKey[:]); err != nil {
@@ -187,12 +201,7 @@ func (s *sink) deliverPending(
 
 		// TODO(kellegous): What happens here if the context is cancelled? Does this keep retrying?
 		if ok {
-			if err := deliver(
-				ctx,
-				client,
-				req,
-				s.retryLimit,
-			); err != nil {
+			if err := s.deliver(ctx, client, req); err != nil {
 				continue
 			}
 		} else {
@@ -203,6 +212,13 @@ func (s *sink) deliverPending(
 			return !closed
 		}
 	}
+}
+
+func getString(v string, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 func getInt(v string, def int) (int, error) {
@@ -238,24 +254,23 @@ func getDuration(v string, def time.Duration) (time.Duration, error) {
 	return duration, nil
 }
 
-func deliver(
+func (s *sink) deliver(
 	ctx context.Context,
 	client yarder_connect.YarderClient,
 	req *yarder.LogReq,
-	retryLimit uint,
 ) error {
 	return retry.Do(
 		func() error {
-			ctx, done := context.WithTimeout(ctx, requestTimeout)
+			ctx, done := context.WithTimeout(ctx, s.options.requestTimeout)
 			defer done()
 
 			_, err := client.Log(ctx, connect.NewRequest(req))
 			return poop.Chain(err)
 		},
 		retry.Context(ctx),
-		retry.Attempts(retryLimit),
-		retry.Delay(initialRetryDelay),
-		retry.MaxDelay(maxRetryDelay),
+		retry.Attempts(s.options.retryLimit),
+		retry.Delay(s.options.baseRetryDelay),
+		retry.MaxDelay(s.options.maxRetryDelay),
 		retry.DelayType(retry.BackOffDelay),
 		retry.LastErrorOnly(true),
 		retry.RetryIf(func(err error) bool {
@@ -280,14 +295,4 @@ func getRpcURL(u *url.URL) (string, error) {
 	}
 
 	return ru.String(), nil
-}
-
-func Register() error {
-	if err := zap.RegisterSink(httpScheme, newSink); err != nil {
-		return poop.Chain(err)
-	}
-	if err := zap.RegisterSink(httpsScheme, newSink); err != nil {
-		return poop.Chain(err)
-	}
-	return nil
 }

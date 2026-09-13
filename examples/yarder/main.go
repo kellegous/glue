@@ -32,7 +32,7 @@ func main() {
 }
 
 func run(ctx context.Context) (err error) {
-	if err := yarder_zap.Register(); err != nil {
+	if err := yarder_zap.Register(yarder_zap.WithApp("example")); err != nil {
 		return poop.Chain(err)
 	}
 
@@ -45,7 +45,6 @@ func run(ctx context.Context) (err error) {
 	}
 
 	params := url.Values{
-		"app":           {"example"},
 		"drain-timeout": {"3s"},
 	}
 

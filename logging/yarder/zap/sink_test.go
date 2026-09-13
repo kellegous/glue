@@ -37,6 +37,15 @@ func (c *recordingYarderClient) Log(_ context.Context, req *connect.Request[yard
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
+type deadlineYarderClient struct {
+	deadline time.Time
+}
+
+func (c *deadlineYarderClient) Log(ctx context.Context, _ *connect.Request[yarder.LogReq]) (*connect.Response[emptypb.Empty], error) {
+	c.deadline, _ = ctx.Deadline()
+	return connect.NewResponse(&emptypb.Empty{}), nil
+}
+
 func TestGetRPCURL(t *testing.T) {
 	for _, tt := range []struct {
 		Name        string
@@ -121,6 +130,24 @@ func TestGetInt(t *testing.T) {
 	}
 }
 
+func TestGetString(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		v    string
+		def  string
+		want string
+	}{
+		{name: "default", def: "default", want: "default"},
+		{name: "value", v: "value", def: "default", want: "value"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getString(tt.v, tt.def); got != tt.want {
+				t.Fatalf("getString(%q, %q) = %q, want %q", tt.v, tt.def, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetDuration(t *testing.T) {
 	type Expected struct {
 		Value time.Duration
@@ -165,11 +192,13 @@ func TestGetDuration(t *testing.T) {
 
 func TestSinkWriteCloseAndSync(t *testing.T) {
 	s := &sink{
-		buffer:       newCircBuffer[*yarder.LogReq](2),
-		changed:      make(chan struct{}, 1),
-		drainTimeout: time.Second,
-		app:          "test-app",
-		writerKey:    [16]byte{1},
+		buffer:  newCircBuffer[*yarder.LogReq](2),
+		changed: make(chan struct{}, 1),
+		options: &RegisterOptions{
+			app:          "test-app",
+			drainTimeout: time.Second,
+		},
+		writerKey: [16]byte{1},
 	}
 
 	if got, err := s.Write([]byte("first")); err != nil || got != len("first") {
@@ -218,7 +247,11 @@ func TestSinkWriteCloseAndSync(t *testing.T) {
 }
 
 func TestSinkSyncTimesOut(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[*yarder.LogReq](1), changed: make(chan struct{}, 1), drainTimeout: time.Millisecond}
+	s := &sink{
+		buffer:  newCircBuffer[*yarder.LogReq](1),
+		changed: make(chan struct{}, 1),
+		options: &RegisterOptions{drainTimeout: time.Millisecond},
+	}
 	if err := s.Sync(); err == nil {
 		t.Fatal("Sync() succeeded without a drain acknowledgement")
 	}
@@ -237,7 +270,11 @@ func TestSinkCloseWakesWorker(t *testing.T) {
 }
 
 func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T) {
-	s := &sink{buffer: newCircBuffer[*yarder.LogReq](3), drained: make(chan struct{})}
+	s := &sink{
+		buffer:  newCircBuffer[*yarder.LogReq](3),
+		drained: make(chan struct{}),
+		options: &RegisterOptions{retryLimit: 1},
+	}
 	s.buffer.Push(&yarder.LogReq{App: "test-app", Data: []byte("one"), WriterSeq: 1})
 	s.buffer.Push(&yarder.LogReq{App: "test-app", Data: []byte("two"), WriterSeq: 2})
 	client := &recordingYarderClient{}
@@ -266,11 +303,34 @@ func TestDeliverPendingDeliversBufferedRecordsAndAcknowledgesDrain(t *testing.T)
 
 func TestDeliverRetriesTransientFailures(t *testing.T) {
 	client := &recordingYarderClient{errors: []error{errors.New("temporary failure")}}
-	if err := deliver(t.Context(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}, 2); err != nil {
+	s := &sink{options: &RegisterOptions{
+		retryLimit:     2,
+		baseRetryDelay: 0,
+		maxRetryDelay:  0,
+		requestTimeout: time.Second,
+	}}
+	if err := s.deliver(t.Context(), client, &yarder.LogReq{App: "test", Data: []byte("entry")}); err != nil {
 		t.Fatalf("deliver() = %v, want nil", err)
 	}
 	if len(client.requests) != 2 {
 		t.Fatalf("deliver() made %d attempts, want 2", len(client.requests))
+	}
+}
+
+func TestSinkDeliverUsesConfiguredRequestTimeout(t *testing.T) {
+	client := &deadlineYarderClient{}
+	s := &sink{options: &RegisterOptions{
+		retryLimit:     1,
+		baseRetryDelay: 0,
+		maxRetryDelay:  0,
+		requestTimeout: time.Hour,
+	}}
+	before := time.Now()
+	if err := s.deliver(t.Context(), client, &yarder.LogReq{}); err != nil {
+		t.Fatalf("deliver() = %v, want nil", err)
+	}
+	if got := client.deadline.Sub(before); got < 59*time.Minute || got > 61*time.Minute {
+		t.Fatalf("request deadline is %s after delivery started, want approximately one hour", got)
 	}
 }
 
@@ -310,13 +370,58 @@ func TestNewSinkDeliversToYarder(t *testing.T) {
 	}
 }
 
-func TestNewSinkRequiresApp(t *testing.T) {
+func TestNewSinkUsesDefaultApp(t *testing.T) {
+	u, err := url.Parse("yarder+http://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := newSink(u)
+	if err != nil {
+		t.Fatalf("newSink() = %v", err)
+	}
+	defer fn.WithPrejudice(writer.Close)
+
+	s, ok := writer.(*sink)
+	if !ok {
+		t.Fatalf("newSink() returned %T, want *sink", writer)
+	}
+	if s.options.app != globalRegisterOptions.app {
+		t.Fatalf("sink app = %q, want default %q", s.options.app, globalRegisterOptions.app)
+	}
+}
+
+func TestNewSinkURLOverridesOptions(t *testing.T) {
+	u, err := url.Parse("yarder+http://example.com?app=override&queue-size=2&drain-timeout=3s&retry-limit=7&base-retry-delay=4ms&max-retry-delay=5s&request-timeout=6s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := newSink(u)
+	if err != nil {
+		t.Fatalf("newSink() = %v", err)
+	}
+	defer fn.WithPrejudice(writer.Close)
+
+	s, ok := writer.(*sink)
+	if !ok {
+		t.Fatalf("newSink() returned %T, want *sink", writer)
+	}
+	got := s.options
+	if got.app != "override" || got.queueSize != 2 || got.drainTimeout != 3*time.Second || got.retryLimit != 7 || got.baseRetryDelay != 4*time.Millisecond || got.maxRetryDelay != 5*time.Second || got.requestTimeout != 6*time.Second {
+		t.Fatalf("sink options = %+v, want URL overrides", got)
+	}
+}
+
+func TestNewSinkRejectsInvalidConfiguredQueueSize(t *testing.T) {
+	original := globalRegisterOptions
+	globalRegisterOptions.queueSize = 0
+	t.Cleanup(func() { globalRegisterOptions = original })
+
 	u, err := url.Parse("yarder+http://example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newSink(u); err == nil {
-		t.Fatal("newSink() succeeded without an app")
+		t.Fatal("newSink() succeeded with a zero queue size")
 	}
 }
 
