@@ -21,18 +21,26 @@ var (
 	}, []string{"code", "method"})
 )
 
-func ForHTTP(mux *http.ServeMux, opts ...HTTPOption) http.Handler {
-	var options HTTPOptions
+func ForHTTP(next http.Handler, opts ...HTTPOption) http.Handler {
+	options := HTTPOptions{
+		path: defaultPath,
+	}
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	mux.Handle(
-		"/metrics",
-		maybeRequireAuthToken(options.authToken, promhttp.Handler()))
+	toMetrics := maybeRequireAuthToken(options.authToken, promhttp.Handler())
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == options.path {
+			toMetrics.ServeHTTP(w, r)
+		} else {
+			next.ServeHTTP(w, r)
+		}
+	})
 
 	return promhttp.InstrumentHandlerDuration(httpDurations,
-		promhttp.InstrumentHandlerCounter(httpCounts, mux))
+		promhttp.InstrumentHandlerCounter(httpCounts, handler))
 }
 
 func maybeRequireAuthToken(token string, next http.Handler) http.Handler {
