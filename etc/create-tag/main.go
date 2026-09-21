@@ -23,10 +23,12 @@ func run(ctx context.Context) error {
 		return poop.Chain(err)
 	}
 
-	if err := exec.CommandContext(ctx, "git", "tag", latest.Next().String()).Run(); err != nil {
+	next := latest.Next()
+	if err := exec.CommandContext(ctx, "git", "tag", next.String()).Run(); err != nil {
 		return poop.Chain(err)
 	}
 
+	fmt.Printf("Tag: %s\n", next)
 	fmt.Println("To push the new tag to origin, run:\ngit push origin --tags")
 	return nil
 }
