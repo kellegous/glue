@@ -16,6 +16,7 @@ type healthzData struct {
 }
 
 func NewHandler(startedAt time.Time) http.Handler {
+	startedAt = startedAt.UTC()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bs := build.ReadSummary()
 		w.Header().Set("Content-Type", "application/json")
