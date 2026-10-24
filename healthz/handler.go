@@ -8,6 +8,8 @@ import (
 	"github.com/kellegous/glue/build"
 )
 
+const Path = "/healthz"
+
 type healthzData struct {
 	*build.Summary
 	StartedAt time.Time `json:"started_at"`
