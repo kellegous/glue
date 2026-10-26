@@ -52,7 +52,7 @@ func TestNewHandler(t *testing.T) {
 				"sha":         summary.SHA,
 				"commit_time": summary.CommitTime.Format(time.RFC3339Nano),
 				"name":        summary.Name,
-				"started_at":  tt.StartedAt.Format(time.RFC3339Nano),
+				"started_at":  tt.StartedAt.UTC().Format(time.RFC3339Nano),
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("response: got %v, want %v", got, want)
