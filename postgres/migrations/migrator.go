@@ -39,7 +39,7 @@ func NewMigrator(db DB, migrations []Migration) *Migrator {
 // Migrate applies pending migrations in one transaction. It returns
 // ErrNewerSchema rather than automatically downgrading a newer database.
 func (m *Migrator) Migrate(ctx context.Context) error {
-	return m.migrate(ctx, len(m.migrations), false, false)
+	return poop.Chain(m.migrate(ctx, len(m.migrations), false, false))
 }
 
 // MigrateTo explicitly migrates up or down to target, which must be between
@@ -49,13 +49,13 @@ func (m *Migrator) MigrateTo(ctx context.Context, target int) error {
 	if target < 0 || target > len(m.migrations) {
 		return poop.Newf("migration target %d outside range [0, %d]", target, len(m.migrations))
 	}
-	return m.migrate(ctx, target, true, false)
+	return poop.Chain(m.migrate(ctx, target, true, false))
 }
 
 // FactoryReset reverses every applied migration and removes the ledger in one
 // transaction. It is also safe on a database with no migrations.
 func (m *Migrator) FactoryReset(ctx context.Context) error {
-	return m.migrate(ctx, 0, true, true)
+	return poop.Chain(m.migrate(ctx, 0, true, true))
 }
 
 func (m *Migrator) migrate(ctx context.Context, target int, allowDown, reset bool) error {
@@ -74,25 +74,37 @@ func (m *Migrator) migrate(ctx context.Context, target int, allowDown, reset boo
 
 	// Stable, database-wide key reserved for glue's public.schema_migrations.
 	// Acquire before CREATE TABLE to serialize first-time initialization too.
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", int64(0x676c75656d696772)); err != nil {
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT pg_advisory_xact_lock($1)`,
+		int64(0x676c75656d696772),
+	); err != nil {
 		return poop.Chain(err)
 	}
-	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.schema_migrations (
-		version integer PRIMARY KEY CHECK (version > 0),
-		down text NOT NULL,
-		applied_at timestamptz NOT NULL DEFAULT now()
-	)`); err != nil {
+
+	if _, err := tx.Exec(
+		ctx, `
+		CREATE TABLE IF NOT EXISTS public.schema_migrations (
+			version integer PRIMARY KEY CHECK (version > 0),
+			down text NOT NULL,
+			applied_at timestamptz NOT NULL DEFAULT now()
+		)`,
+	); err != nil {
 		return poop.Chain(err)
 	}
 
 	var active, count int
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0), COUNT(*)
-		FROM public.schema_migrations`).Scan(&active, &count); err != nil {
+	if err := tx.QueryRow(
+		ctx, `
+		SELECT COALESCE(MAX(version), 0), COUNT(*)
+		FROM public.schema_migrations`,
+	).Scan(&active, &count); err != nil {
 		return poop.Chain(err)
 	}
 	if active != count {
 		return poop.Newf("migration history is not contiguous: %d rows through version %d", count, active)
 	}
+
 	if active > target && !allowDown {
 		return poop.ChainWithf(ErrNewerSchema, "database %d, configured %d", active, target)
 	}
@@ -105,32 +117,56 @@ func (m *Migrator) migrate(ctx context.Context, target int, allowDown, reset boo
 		if _, err := tx.Exec(ctx, mig.Up, pgx.QueryExecModeSimpleProtocol); err != nil {
 			return poop.ChainWithf(err, "apply migration %d", version)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO public.schema_migrations (version, down)
-			VALUES ($1, $2)`, version, mig.Down); err != nil {
+
+		if _, err := tx.Exec(
+			ctx, `
+			INSERT INTO public.schema_migrations (version, down)
+			VALUES ($1, $2)`,
+			version,
+			mig.Down,
+		); err != nil {
 			return poop.ChainWithf(err, "record migration %d", version)
 		}
 		active = version
 	}
+
 	for active > target {
 		var down string
-		if err := tx.QueryRow(ctx, "SELECT down FROM public.schema_migrations WHERE version = $1", active).Scan(&down); err != nil {
+		if err := tx.QueryRow(
+			ctx,
+			`SELECT down FROM public.schema_migrations WHERE version = $1`,
+			active,
+		).Scan(&down); err != nil {
 			return poop.ChainWithf(err, "read rollback for migration %d", active)
 		}
+
 		if _, err := tx.Exec(ctx, down, pgx.QueryExecModeSimpleProtocol); err != nil {
 			return poop.ChainWithf(err, "reverse migration %d", active)
 		}
-		if _, err := tx.Exec(ctx, "DELETE FROM public.schema_migrations WHERE version = $1", active); err != nil {
+
+		if _, err := tx.Exec(
+			ctx,
+			`DELETE FROM public.schema_migrations WHERE version = $1`,
+			active,
+		); err != nil {
 			return poop.ChainWithf(err, "delete migration %d", active)
 		}
+
 		active--
 	}
+
 	if reset {
-		if _, err := tx.Exec(ctx, "DROP TABLE public.schema_migrations"); err != nil {
+		if _, err := tx.Exec(
+			ctx,
+			`DROP TABLE public.schema_migrations`,
+		); err != nil {
 			return poop.Chain(err)
 		}
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return poop.Chain(err)
 	}
+
 	return nil
 }

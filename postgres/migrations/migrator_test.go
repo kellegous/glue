@@ -22,19 +22,23 @@ func TestMigrator(t *testing.T) {
 		postgres.WithPassword("migrations"),
 		postgres.BasicWaitStrategies(),
 	)
+
 	testcontainers.CleanupContainer(t, container)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(admin.Close)
+
 	// Each subtest gets its own database, including an initially absent ledger.
 	databaseID := 0
 	openDB := func(t *testing.T) *pgxpool.Pool {
@@ -57,6 +61,7 @@ func TestMigrator(t *testing.T) {
 		t.Cleanup(db.Close)
 		return db
 	}
+
 	migrations := []Migration{
 		{Up: "CREATE TABLE items (id integer PRIMARY KEY); INSERT INTO items VALUES (1)", Down: "DELETE FROM items; DROP TABLE items"},
 		{Up: "ALTER TABLE items ADD COLUMN name text; UPDATE items SET name = 'first'", Down: "ALTER TABLE items DROP COLUMN name"},
